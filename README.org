@@ -1,0 +1,59 @@
+#+TITLE: sbcl-workers
+#+STARTUP: content
+
+=sbcl-workers= manages named, persistent SBCL subprocesses through a readable
+S-expression protocol. Each worker keeps its own heap, can move between working
+directories without losing state, and can be reset independently.
+
+Process separation here is a reliability boundary. It is not a security
+sandbox, and evaluated forms have the user's privileges.
+
+* Environment and pool
+
+The host supplies the command that starts a pristine protocol runtime. This
+keeps the library independent of any executable, build system, or application:
+
+#+BEGIN_SRC lisp
+(defparameter *environment*
+  (sbcl-workers:sbcl-worker-environment-create
+   :pristine-command '("my-lisp-application" "--worker")
+   :working-directory #P"/srv/project/"
+   :image-root #P"/srv/state/lisp-images/"))
+
+(defparameter *pool*
+  (sbcl-workers:sbcl-worker-pool-create *environment*))
+
+(defparameter *repl*
+  (sbcl-workers:sbcl-worker-pool-start *pool* "compiler" "pristine"))
+
+(sbcl-workers:sbcl-worker-request
+ *repl* :eval '(:form "(+ 20 22)"))
+#+END_SRC
+
+The pristine command must load =sbcl-workers= and call
+=sbcl-workers:sbcl-worker-main=. Applications can configure the evaluation
+package, handshake tag, protocol version, and matching SBCL source environment
+variable on both sides.
+
+* Worker images
+
+=sbcl-worker-save-image= forks a short-lived saver from a running worker. The
+parent continues running while the library probes the unpublished core and then
+atomically publishes its immutable directory and readable manifest. Manifests
+record the exact SBCL, operating system, architecture, parent image, creation
+time, durable note, and optional host source revision.
+
+Saved cores are accepted only by an exactly compatible runtime. =pristine= is a
+reserved virtual base and is never represented by a mutable saved core.
+
+* Operations
+
+The built-in runtime handles evaluation, compilation, ASDF or Quicklisp system
+loading, description, matching SBCL source lookup, ASDF tests, and image saving.
+Responses contain only readable Common Lisp data.
+
+* Tests
+
+#+BEGIN_SRC lisp
+(asdf:test-system :sbcl-workers)
+#+END_SRC

@@ -1,0 +1,258 @@
+(in-package #:sbcl-workers/tests)
+
+(defvar *tests-run* 0
+  "The number of assertions evaluated by the current test run.")
+
+(defun test-assert (condition description)
+  "Record and require CONDITION, reporting DESCRIPTION on failure."
+  (incf *tests-run*)
+  (unless condition
+    (error "Test failed: ~A" description)))
+
+(defun test-root ()
+  "Return a fresh temporary directory for one test group."
+  (merge-pathnames
+   (format nil "sbcl-workers-tests-~36R-~36R/"
+           (get-universal-time)
+           (random most-positive-fixnum))
+   (uiop:temporary-directory)))
+
+(defun test-pristine-command ()
+  "Return an argv list that boots this checkout's worker runtime."
+  (let ((asd (asdf:system-source-file :sbcl-workers)))
+    (list "sbcl"
+          "--noinform"
+          "--non-interactive"
+          "--eval"
+          "(require :asdf)"
+          "--eval"
+          (format nil "(asdf:load-asd #P~S)" (namestring asd))
+          "--eval"
+          "(asdf:load-system :sbcl-workers)"
+          "--eval"
+          "(sbcl-workers:sbcl-worker-main)")))
+
+(defun test-environment (root &key (working-directory root) context)
+  "Return a worker environment rooted beneath ROOT."
+  (sbcl-worker-environment-create
+   :pristine-command (test-pristine-command)
+   :working-directory working-directory
+   :image-root (merge-pathnames "images/" root)
+   :source-revision-function (lambda () "test-revision")
+   :context context))
+
+(defun test-write-sparse-core (pathname)
+  "Write a sparse file large enough for saved-core shape validation."
+  (ensure-directories-exist pathname)
+  (with-open-file (stream pathname
+                          :direction :output
+                          :if-exists :supersede
+                          :if-does-not-exist :create
+                          :element-type '(unsigned-byte 8))
+    (file-position stream +minimum-sbcl-worker-core-size+)
+    (write-byte 0 stream))
+  pathname)
+
+(defun test-runtime ()
+  "Test portable evaluation success and condition responses."
+  (let ((success
+          (sbcl-worker-handle-request
+           '(:request :id 1 :operation :eval :arguments (:form "(+ 20 22)"))))
+        (failure
+          (sbcl-worker-handle-request
+           '(:request :id 2 :operation :eval :arguments (:form "(/ 1 0)")))))
+    (test-assert (equal (getf (rest success) :values) '("42"))
+                 "the runtime returns rendered evaluation values")
+    (test-assert (eq (getf (rest failure) :status) :error)
+                 "the runtime serializes evaluation conditions")
+    (test-assert (stringp (getf (rest failure) :backtrace))
+                 "runtime failures include a portable backtrace")))
+
+(defun test-images ()
+  "Test immutable manifests, compatibility, scans, and structured errors."
+  (let* ((root (test-root))
+         (environment (test-environment root))
+         (identifier "instrumented")
+         (directory (merge-pathnames "images/instrumented/" root))
+         (core (merge-pathnames "worker.core" directory)))
+    (unwind-protect
+         (progn
+           (test-write-sparse-core core)
+           (let ((image
+                   (sbcl-worker-image-publish-manifest
+                    environment
+                    :identifier identifier
+                    :parent-identifier
+                    +pristine-sbcl-worker-image-identifier+
+                    :note "Carries compiler instrumentation."
+                    :core-pathname core
+                    :source-revision "abc123")))
+             (test-assert
+              (string= (sbcl-worker-image-identifier image) identifier)
+              "published images retain their identifier")
+             (test-assert (sbcl-worker-image-compatible-p image)
+                          "a manifest from the current host is compatible"))
+           (multiple-value-bind (images failures)
+               (sbcl-worker-image-scan environment)
+             (test-assert (and (= (length images) 1) (null failures))
+                          "image scans return valid immutable manifests"))
+           (test-assert
+            (handler-case
+                (progn
+                  (sbcl-worker-image-publish-manifest
+                   environment
+                   :identifier identifier
+                   :parent-identifier
+                   +pristine-sbcl-worker-image-identifier+
+                   :note "Duplicate."
+                   :core-pathname core)
+                  nil)
+              (sbcl-worker-image-error ()
+                t))
+            "an image identifier cannot be published twice")
+           (test-assert
+            (handler-case
+                (progn
+                  (sbcl-worker-image-validate-identifier "pristine")
+                  nil)
+              (sbcl-worker-image-error (condition)
+                (eq (sbcl-worker-error-operation condition) :images)))
+            "the pristine identifier is reserved with a structured error"))
+      (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore))))
+
+(defun test-pool ()
+  "Test isolated heaps, persistence, workspace changes, reset, and removal."
+  (let* ((root (test-root))
+         (environment (test-environment root :context :original))
+         (pool (sbcl-worker-pool-create environment)))
+    (ensure-directories-exist (merge-pathnames "marker" root))
+    (unwind-protect
+         (let* ((alpha (sbcl-worker-pool-start pool "alpha" "pristine"))
+                (beta (sbcl-worker-pool-start pool "beta" "pristine")))
+           (sbcl-worker-request
+            alpha :eval '(:form "(defparameter *pool-value* 41)"))
+           (test-assert
+            (equal (getf (rest (sbcl-worker-request
+                                alpha :eval '(:form "(1+ *pool-value*)")))
+                         :values)
+                   '("42"))
+            "a named worker retains its heap")
+           (test-assert
+            (equal (getf (rest (sbcl-worker-request
+                                beta :eval '(:form "(boundp '*pool-value*)")))
+                         :values)
+                   '("NIL"))
+            "separate workers do not share heap state")
+           (test-assert (search "alpha  running  image pristine"
+                                (sbcl-worker-pool-render pool))
+                        "the pool reports worker state and image identity")
+           (let ((moved (merge-pathnames "moved/" root)))
+             (ensure-directories-exist (merge-pathnames "marker" moved))
+             (let ((moved-environment
+                     (test-environment root
+                                       :working-directory moved
+                                       :context :moved)))
+               (sbcl-worker-pool-change-working-directory
+                pool moved-environment)
+               (test-assert
+                (search (namestring moved)
+                        (first
+                         (getf
+                          (rest
+                           (sbcl-worker-request
+                            alpha :eval
+                            '(:form "(namestring (uiop:getcwd))")))
+                          :values)))
+                "a workspace change updates live process directories")
+               (test-assert
+                (eq (sbcl-worker-environment-context
+                     (sbcl-worker-pool-environment pool))
+                    :moved)
+                "the pool retains the new opaque host context")))
+           (let ((missing-environment
+                   (test-environment
+                    root
+                    :working-directory (merge-pathnames "missing/" root)
+                    :context :invalid)))
+             (test-assert
+              (handler-case
+                  (progn
+                    (sbcl-worker-pool-change-working-directory
+                     pool missing-environment)
+                    nil)
+                (sbcl-worker-error ()
+                  t))
+              "a failed workspace change signals a worker condition")
+             (test-assert
+              (eq (sbcl-worker-environment-context
+                   (sbcl-worker-pool-environment pool))
+                  :moved)
+              "a failed workspace change preserves the pool environment"))
+           (test-assert
+            (handler-case
+                (progn
+                  (sbcl-worker-pool-start pool "alpha" "other")
+                  nil)
+              (sbcl-worker-error ()
+                t))
+            "an existing worker cannot switch images implicitly")
+           (sbcl-worker-pool-reset pool "alpha" "pristine")
+           (test-assert
+            (equal
+             (getf (rest (sbcl-worker-request
+                          (sbcl-worker-pool-worker pool "alpha")
+                          :eval
+                          '(:form "(boundp '*pool-value*)")))
+                   :values)
+             '("NIL"))
+            "reset replaces only the named worker heap")
+           (sbcl-worker-pool-stop pool "beta")
+           (test-assert (not (search "beta" (sbcl-worker-pool-render pool)))
+                        "stopping a worker removes it from the pool"))
+      (sbcl-worker-pool-stop-all pool)
+      (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore))))
+
+(defun test-image-snapshot ()
+  "Test forked heap saving, probing, publication, and independent cloning."
+  (let* ((root (test-root))
+         (environment (test-environment root))
+         (pool (sbcl-worker-pool-create environment)))
+    (ensure-directories-exist (merge-pathnames "marker" root))
+    (unwind-protect
+         (let ((source (sbcl-worker-pool-start pool "source" "pristine")))
+           (sbcl-worker-request
+            source :eval
+            '(:form "(defparameter *saved-worker-marker* 9001)"))
+           (let ((image
+                   (sbcl-worker-save-image
+                    environment source
+                    :identifier "diddled"
+                    :note "Carries a marker proving that the heap was retained.")))
+             (test-assert
+              (and (string= (sbcl-worker-image-identifier image) "diddled")
+                   (sbcl-worker-image-plausible-core-p
+                    (sbcl-worker-image-core-pathname image)))
+              "saving publishes a plausible immutable core")
+             (test-assert (sbcl-worker-running-p source)
+                          "saving leaves the parent worker running")
+             (let ((clone
+                     (sbcl-worker-pool-start pool "clone" "diddled")))
+               (test-assert
+                (equal
+                 (getf (rest (sbcl-worker-request
+                              clone :eval '(:form "*saved-worker-marker*")))
+                       :values)
+                 '("9001"))
+                "a clone inherits the saved heap"))))
+      (sbcl-worker-pool-stop-all pool)
+      (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore))))
+
+(defun run-tests ()
+  "Run the complete sbcl-workers test suite and return true."
+  (setf *tests-run* 0)
+  (test-runtime)
+  (test-images)
+  (test-pool)
+  (test-image-snapshot)
+  (format t "~&sbcl-workers: ~D tests passed.~%" *tests-run*)
+  t)
