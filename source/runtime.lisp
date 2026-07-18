@@ -137,8 +137,8 @@
         (describe (worker--read-form (getf arguments :designator)))
         (values))))
     (:source
-     (worker-source (getf arguments :name)
-                    (getf arguments :kind)))
+     (sbcl-worker-source (getf arguments :name)
+                         (getf arguments :kind)))
     (:run-tests
      (worker--capture-evaluation
       (lambda ()

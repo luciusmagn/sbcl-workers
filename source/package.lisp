@@ -64,6 +64,7 @@
            #:sbcl-worker-running-p
            #:sbcl-worker-runtime-configure
            #:sbcl-worker-save-image
+           #:sbcl-worker-source
            #:sbcl-worker-start
            #:sbcl-worker-stop
            #:sbcl-worker-used-image-identifier))

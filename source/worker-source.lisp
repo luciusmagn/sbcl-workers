@@ -200,7 +200,7 @@
                           output)
             (write-string (worker-source--line-window source offset) output))))))
 
-(defun worker-source (name-source kind-source)
+(defun sbcl-worker-source (name-source kind-source)
   "Return matching source locations for NAME-SOURCE and optional KIND-SOURCE."
   (require :sb-introspect)
   (let* ((name (worker-source--name name-source))
