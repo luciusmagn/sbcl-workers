@@ -60,6 +60,7 @@
            #:sbcl-worker-pool-stop-all
            #:sbcl-worker-pool-worker
            #:sbcl-worker-request
+           #:sbcl-worker-render-value
            #:sbcl-worker-reset
            #:sbcl-worker-running-p
            #:sbcl-worker-runtime-configure

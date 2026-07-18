@@ -55,12 +55,16 @@
 
 (defun test-runtime ()
   "Test portable evaluation success and condition responses."
-  (let ((success
+  (let* ((circular (list :root))
+         (success
           (sbcl-worker-handle-request
            '(:request :id 1 :operation :eval :arguments (:form "(+ 20 22)"))))
-        (failure
+         (failure
           (sbcl-worker-handle-request
            '(:request :id 2 :operation :eval :arguments (:form "(/ 1 0)")))))
+    (setf (rest circular) circular)
+    (test-assert (search "#1=" (sbcl-worker-render-value circular))
+                 "value rendering safely represents circular structure")
     (test-assert (equal (getf (rest success) :values) '("42"))
                  "the runtime returns rendered evaluation values")
     (test-assert (eq (getf (rest failure) :status) :error)

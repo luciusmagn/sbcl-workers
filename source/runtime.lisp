@@ -34,8 +34,8 @@
         source-root-environment-variable)
   nil)
 
-(defun worker--render-value (value)
-  "Return a bounded readable representation of worker VALUE."
+(defun sbcl-worker-render-value (value)
+  "Return a bounded, circularity-safe representation of VALUE."
   (worker--bounded-string
    (write-to-string value
                     :readably nil
@@ -55,7 +55,7 @@
                     (*package* (worker--evaluation-package)))
                 (setf result-values
                       (multiple-value-list (funcall function)))))))
-      (values (mapcar #'worker--render-value result-values) output))))
+      (values (mapcar #'sbcl-worker-render-value result-values) output))))
 
 (defun worker--single-threaded-p ()
   "Return true when the worker has no live Lisp thread besides this one."
