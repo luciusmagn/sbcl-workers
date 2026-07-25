@@ -57,3 +57,5 @@ Responses contain only readable Common Lisp data.
 #+BEGIN_SRC lisp
 (asdf:test-system :sbcl-workers)
 #+END_SRC
+
+Part of the [[https://www.lambda-symbolics.com/libraries][Lambda Symbolics library shelf]].
