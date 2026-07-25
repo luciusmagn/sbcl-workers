@@ -1,6 +1,7 @@
 (asdf:defsystem #:sbcl-workers
   :description "Persistent isolated SBCL workers and immutable heap images"
   :author "Lukas Hozda"
+  :license "ISC"
   :version "0.1.0"
   :serial t
   :depends-on (#:bordeaux-threads
