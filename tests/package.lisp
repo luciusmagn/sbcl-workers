@@ -3,10 +3,12 @@
   (:import-from #:sbcl-workers
                 #:+minimum-sbcl-worker-core-size+
                 #:+pristine-sbcl-worker-image-identifier+
+                #:sbcl-worker-create
                 #:sbcl-worker-environment-context
                 #:sbcl-worker-environment-create
                 #:sbcl-worker-error
                 #:sbcl-worker-error-operation
+                #:sbcl-worker-error-stage
                 #:sbcl-worker-handle-request
                 #:sbcl-worker-image-compatible-p
                 #:sbcl-worker-image-core-pathname
@@ -16,6 +18,7 @@
                 #:sbcl-worker-image-publish-manifest
                 #:sbcl-worker-image-scan
                 #:sbcl-worker-image-validate-identifier
+                #:sbcl-worker-name-p
                 #:sbcl-worker-pool-change-working-directory
                 #:sbcl-worker-pool-create
                 #:sbcl-worker-pool-environment

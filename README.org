@@ -33,7 +33,8 @@ keeps the library independent of any executable, build system, or application:
 The pristine command must load =sbcl-workers= and call
 =sbcl-workers:sbcl-worker-main=. Applications can configure the evaluation
 package, handshake tag, protocol version, and matching SBCL source environment
-variable on both sides.
+variable on both sides. =sbcl-worker-name-p= checks the accepted one-to-eighty
+character worker-name syntax before an application constructs its own diagnostic.
 
 * Worker images
 

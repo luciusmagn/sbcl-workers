@@ -53,6 +53,30 @@
     (write-byte 0 stream))
   pathname)
 
+(defun test-worker-names ()
+  "Test the public worker-name predicate and structured validation failure."
+  (dolist (name '("default" "alpha-1" "worker_name"))
+    (test-assert (eq (sbcl-worker-name-p name) t)
+                 (format nil "~S is a valid worker name" name)))
+  (dolist (name (list nil "" "with space" "slash/name"
+                      (make-string 81 :initial-element #\a)))
+    (test-assert (null (sbcl-worker-name-p name))
+                 (format nil "~S is not a valid worker name" name)))
+  (let* ((root (test-root))
+         (environment (test-environment root)))
+    (unwind-protect
+         (test-assert
+          (handler-case
+              (progn
+                (sbcl-worker-create environment :name "bad/name")
+                nil)
+            (sbcl-worker-error (condition)
+              (and (eq (sbcl-worker-error-operation condition) :workers)
+                   (eq (sbcl-worker-error-stage condition) :name))))
+          "worker creation preserves its structured invalid-name error")
+      (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)))
+  nil)
+
 (defun test-runtime ()
   "Test portable evaluation success and condition responses."
   (let* ((circular (list :root))
@@ -254,6 +278,7 @@
 (defun run-tests ()
   "Run the complete sbcl-workers test suite and return true."
   (setf *tests-run* 0)
+  (test-worker-names)
   (test-runtime)
   (test-images)
   (test-pool)

@@ -48,7 +48,7 @@
     :documentation "The lock serializing protocol requests."))
   (:documentation "One named persistent, heap-isolated SBCL process."))
 
-(defun worker--name-p (value)
+(defun sbcl-worker-name-p (value)
   "Return true when VALUE is safe as one named worker."
   (and (worker--non-empty-string-p value)
        (<= (length value) 80)
@@ -60,7 +60,7 @@
 
 (defun worker--validate-name (name)
   "Return valid worker NAME or signal a worker condition."
-  (unless (worker--name-p name)
+  (unless (sbcl-worker-name-p name)
     (worker--signal-error
      (format nil
              "Invalid SBCL worker name ~S. Use 1 to 80 letters, digits, hyphens, or underscores."

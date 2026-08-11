@@ -49,6 +49,7 @@
            #:sbcl-worker-main
            #:sbcl-worker-manager-detach-inherited-processes
            #:sbcl-worker-name
+           #:sbcl-worker-name-p
            #:sbcl-worker-pool
            #:sbcl-worker-pool-change-working-directory
            #:sbcl-worker-pool-create
