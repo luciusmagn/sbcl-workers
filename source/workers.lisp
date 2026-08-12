@@ -205,7 +205,7 @@
 (defun sbcl-worker-stop (worker)
   "Terminate WORKER and discard all process streams and heap state."
   (multiple-value-bind (process input output)
-      (with-lock-held ((worker--lock worker))
+      (with-recursive-lock-held ((worker--lock worker))
         (worker--detach-process worker))
     (worker--cleanup-process process input output))
   nil)
@@ -217,7 +217,7 @@ This operation is safe from a condition handler running inside
 SBCL-WORKER-REQUEST. The next request starts a fresh process without waiting for
 old process reaping or stream cleanup."
   (multiple-value-bind (process input output)
-      (with-lock-held ((worker--lock worker))
+      (with-recursive-lock-held ((worker--lock worker))
         (worker--detach-process worker))
     (when (or process input output)
       (make-thread
