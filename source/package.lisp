@@ -2,6 +2,8 @@
   (:use #:cl)
   (:import-from #:bordeaux-threads
                 #:make-lock
+                #:make-recursive-lock
+                #:make-thread
                 #:with-lock-held)
   (:import-from #:sexp-store
                 #:snapshot-read
@@ -9,6 +11,7 @@
   (:export #:+minimum-sbcl-worker-core-size+
            #:+pristine-sbcl-worker-image-identifier+
            #:sbcl-worker
+           #:sbcl-worker-cancel-request
            #:sbcl-worker-change-working-directory
            #:sbcl-worker-core-pathname
            #:sbcl-worker-create

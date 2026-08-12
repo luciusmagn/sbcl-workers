@@ -3,6 +3,7 @@
   (:import-from #:sbcl-workers
                 #:+minimum-sbcl-worker-core-size+
                 #:+pristine-sbcl-worker-image-identifier+
+                #:sbcl-worker-cancel-request
                 #:sbcl-worker-create
                 #:sbcl-worker-environment-context
                 #:sbcl-worker-environment-create
@@ -31,5 +32,6 @@
                 #:sbcl-worker-request
                 #:sbcl-worker-render-value
                 #:sbcl-worker-running-p
-                #:sbcl-worker-save-image)
+                #:sbcl-worker-save-image
+                #:sbcl-worker-stop)
   (:export #:run-tests))

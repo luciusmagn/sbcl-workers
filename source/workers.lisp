@@ -43,9 +43,9 @@
     :type integer
     :documentation "The next protocol request identifier.")
    (lock
-    :initform (make-lock "SBCL worker")
+    :initform (make-recursive-lock "SBCL worker")
     :reader worker--lock
-    :documentation "The lock serializing protocol requests."))
+    :documentation "The recursive lock serializing protocol and lifecycle changes."))
   (:documentation "One named persistent, heap-isolated SBCL process."))
 
 (defun sbcl-worker-name-p (value)
@@ -180,20 +180,50 @@
            :cause condition)))))
   worker)
 
-(defun sbcl-worker-stop (worker)
-  "Terminate WORKER and discard all process streams and heap state."
-  (let ((process (worker--process worker)))
-    (when process
-      (when (uiop:process-alive-p process)
-        (ignore-errors (uiop:terminate-process process :urgent t)))
-      (ignore-errors (uiop:wait-process process))))
-  (dolist (stream (list (worker--input worker) (worker--output worker)))
+(defun worker--cleanup-process (process input output)
+  "Terminate detached PROCESS and close its protocol streams."
+  (when process
+    (when (uiop:process-alive-p process)
+      (ignore-errors (uiop:terminate-process process :urgent t)))
+    (ignore-errors (uiop:wait-process process)))
+  (dolist (stream (list input output))
     (when (and stream (open-stream-p stream))
       (ignore-errors (close stream))))
-  (setf (worker--process worker) nil
-        (worker--input worker) nil
-        (worker--output worker) nil
-        (worker--next-request-id worker) 1)
+  nil)
+
+(defun worker--detach-process (worker)
+  "Detach WORKER's process state and return its process and protocol streams."
+  (let ((process (worker--process worker))
+        (input (worker--input worker))
+        (output (worker--output worker)))
+    (setf (worker--process worker) nil
+          (worker--input worker) nil
+          (worker--output worker) nil
+          (worker--next-request-id worker) 1)
+    (values process input output)))
+
+(defun sbcl-worker-stop (worker)
+  "Terminate WORKER and discard all process streams and heap state."
+  (multiple-value-bind (process input output)
+      (with-lock-held ((worker--lock worker))
+        (worker--detach-process worker))
+    (worker--cleanup-process process input output))
+  nil)
+
+(defun sbcl-worker-cancel-request (worker)
+  "Detach WORKER immediately and clean its interrupted process asynchronously.
+
+This operation is safe from a condition handler running inside
+SBCL-WORKER-REQUEST. The next request starts a fresh process without waiting for
+old process reaping or stream cleanup."
+  (multiple-value-bind (process input output)
+      (with-lock-held ((worker--lock worker))
+        (worker--detach-process worker))
+    (when (or process input output)
+      (make-thread
+       (lambda ()
+         (worker--cleanup-process process input output))
+       :name "SBCL worker cancelled-request cleanup")))
   nil)
 
 (defun sbcl-worker-reset (worker)

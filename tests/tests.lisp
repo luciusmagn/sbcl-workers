@@ -240,6 +240,60 @@
       (sbcl-worker-pool-stop-all pool)
       (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore))))
 
+(defun test-worker-request-cancellation ()
+  "Test an interrupted request detaches promptly and restarts from a clean heap."
+  (let* ((root (test-root))
+         (environment (test-environment root))
+         (worker (sbcl-worker-create environment :name "cancel"))
+         (marker (merge-pathnames "request-started" root))
+         (request-thread nil))
+    (ensure-directories-exist marker)
+    (unwind-protect
+         (progn
+           (setf request-thread
+                 (sb-thread:make-thread
+                  (lambda ()
+                    (handler-case
+                        (sbcl-worker-request
+                         worker
+                         :eval
+                         (list
+                          :form
+                          (format
+                           nil
+                           "(progn (with-open-file (stream ~S :direction :output :if-exists :supersede :if-does-not-exist :create) (write-line \"started\" stream)) (defparameter *cancelled-worker-state* t) (sleep 30))"
+                           (namestring marker))))
+                      (serious-condition ()
+                        nil)))
+                  :name "SBCL worker cancellation test"))
+           (loop repeat 100
+                 until (probe-file marker)
+                 do (sleep 0.05))
+           (test-assert (probe-file marker)
+                        "the cancelled worker request reaches its process")
+           (sb-thread:interrupt-thread
+            request-thread
+            (lambda ()
+              (sbcl-worker-cancel-request worker)
+              (error "Cancel the active worker request.")))
+           (sb-thread:join-thread request-thread :timeout 5)
+           (test-assert (not (sb-thread:thread-alive-p request-thread))
+                        "request cancellation promptly unwinds the caller")
+           (test-assert (not (sbcl-worker-running-p worker))
+                        "request cancellation detaches the interrupted process")
+           (test-assert
+            (equal
+             (getf
+              (rest
+               (sbcl-worker-request
+                worker :eval '(:form "(boundp '*cancelled-worker-state*)")))
+              :values)
+             '("NIL"))
+            "the next request starts from a clean protocol process"))
+      (sbcl-worker-stop worker)
+      (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)))
+  nil)
+
 (defun test-image-snapshot ()
   "Test forked heap saving, probing, publication, and independent cloning."
   (let* ((root (test-root))
@@ -282,6 +336,7 @@
   (test-runtime)
   (test-images)
   (test-pool)
+  (test-worker-request-cancellation)
   (test-image-snapshot)
   (format t "~&sbcl-workers: ~D tests passed.~%" *tests-run*)
   t)
