@@ -3,10 +3,10 @@
 
 =sbcl-workers= manages named, persistent SBCL subprocesses through a readable
 S-expression protocol. Each worker keeps its own heap, can move between working
-directories without losing state, and can be reset independently.
+directories, and can be reset independently.
 
-Process separation here is a reliability boundary. It is not a security
-sandbox, and evaluated forms have the user's privileges.
+Process separation is a reliability boundary. Evaluated forms have the user's
+privileges.
 
 * Environment and pool
 
@@ -31,26 +31,43 @@ keeps the library independent of any executable, build system, or application:
 #+END_SRC
 
 The pristine command must load =sbcl-workers= and call
-=sbcl-workers:sbcl-worker-main=. Applications can configure the evaluation
-package, handshake tag, protocol version, and matching SBCL source environment
-variable on both sides. =sbcl-worker-name-p= checks the accepted one-to-eighty
-character worker-name syntax before an application constructs its own diagnostic.
+=sbcl-workers:sbcl-worker-main=. Applications can configure:
+
+- the evaluation package
+- handshake tag
+- protocol version
+- matching SBCL source environment variable
+
+=sbcl-worker-name-p= checks the accepted one-to-eighty character worker-name
+syntax.
 
 * Worker images
 
 =sbcl-worker-save-image= forks a short-lived saver from a running worker. The
 parent continues running while the library probes the unpublished core and then
 atomically publishes its immutable directory and readable manifest. Manifests
-record the exact SBCL, operating system, architecture, parent image, creation
-time, durable note, and optional host source revision.
+record:
+
+- the exact SBCL, operating system, and architecture
+- parent image
+- creation time
+- durable note
+- optional host source revision
 
 Saved cores are accepted only by an exactly compatible runtime. =pristine= is a
-reserved virtual base and is never represented by a mutable saved core.
+reserved virtual base.
 
 * Operations
 
-The built-in runtime handles evaluation, compilation, ASDF or Quicklisp system
-loading, description, matching SBCL source lookup, ASDF tests, and image saving.
+The built-in runtime handles:
+
+- evaluation and compilation
+- ASDF or Quicklisp system loading
+- description
+- matching SBCL source lookup
+- ASDF tests
+- image saving
+
 Responses contain only readable Common Lisp data.
 
 * Tests
